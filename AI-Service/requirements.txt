@@ -1,0 +1,11 @@
+# --- AI Engine & LLM ---
+groq
+python-dotenv
+
+# --- PDF Parsing ---
+pymupdf
+
+# --- API Server ---
+fastapi
+uvicorn
+python-multipart
