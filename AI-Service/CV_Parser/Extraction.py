@@ -8,9 +8,20 @@ from CV_Parser.Role_Inference import map_role, VALID_LEVELS
 
 load_dotenv()
 
-client = Groq(
-    api_key=os.environ.get("GROQ_API_KEY")
-)
+
+def get_groq_client():
+    """
+    Build Groq client lazily to avoid crashing app startup when key is missing.
+    """
+
+    api_key = os.environ.get("GROQ_API_KEY")
+
+    if not api_key:
+        raise ValueError(
+            "GROQ_API_KEY is not set. Set it in environment or .env file."
+        )
+
+    return Groq(api_key=api_key)
 
 
 def normalize_skills(skills):
@@ -65,6 +76,8 @@ def extract_and_infer_profile(clean_cv_text: str) -> dict:
     user_prompt = f"CV Text:\n{clean_cv_text}"
 
     try:
+        client = get_groq_client()
+
         response = client.chat.completions.create(
             messages=[
                 {

@@ -1,32 +1,4 @@
-import { useMemo, useRef, useState } from "react";
-
-const demoResponse = {
-  candidate: {
-    fullName: "Ahmed Khaled",
-    email: "ahmed.khaled@example.com",
-    phone: "+20 100 123 4567",
-    currentRole: "Frontend Developer",
-    suggestedRole: "Senior Frontend Developer",
-    experienceYears: 4,
-  },
-  extraction: {
-    skills: ["React", "TypeScript", "HTML", "CSS", "REST APIs", "Redux"],
-    highlights: [
-      "Built responsive dashboards for internal tools.",
-      "Integrated backend APIs and handled complex forms.",
-      "Improved page performance and component reuse.",
-    ],
-    interviewNotes: [
-      "Ask about state management decisions.",
-      "Review accessibility and performance examples.",
-    ],
-  },
-  raw: {
-    suggested_title: "Senior Frontend Developer",
-    confidence: 0.92,
-    source: "demo",
-  },
-};
+import { useRef, useState } from "react";
 
 const emptyForm = {
   fullName: "",
@@ -96,27 +68,17 @@ const normalizeResponse = (payload) => {
 export default function App() {
   const fileInputRef = useRef(null);
   const [currentFile, setCurrentFile] = useState(null);
-  const [currentSource, setCurrentSource] = useState("demo");
-  const [currentResponse, setCurrentResponse] = useState(demoResponse);
+  const [currentSource, setCurrentSource] = useState("none");
+  const [currentResponse, setCurrentResponse] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [analysisState, setAnalysisState] = useState("Ready");
+  const [analysisState, setAnalysisState] = useState("Waiting for upload");
   const [connectionStatus, setConnectionStatus] = useState("Ready");
-  const [apiUrl, setApiUrl] = useState("http://localhost:8000/analyze");
-  const [reviewVisible, setReviewVisible] = useState(true);
-  const [summary, setSummary] = useState(demoResponse);
-  const [form, setForm] = useState(() => ({
-    ...emptyForm,
-    ...normalizeResponse(demoResponse),
-    skills: normalizeResponse(demoResponse).skills.join("\n"),
-    highlights: normalizeResponse(demoResponse).highlights.join("\n"),
-    interviewNotes: normalizeResponse(demoResponse).interviewNotes.join("\n"),
-  }));
+  const [apiUrl, setApiUrl] = useState("/api/upload-cv");
+  const [reviewVisible, setReviewVisible] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [analysisError, setAnalysisError] = useState(null);
+  const [form, setForm] = useState(emptyForm);
   const [dragActive, setDragActive] = useState(false);
-
-  const normalizedSummary = useMemo(
-    () => normalizeResponse(summary),
-    [summary],
-  );
 
   const applyPayload = (payload, source) => {
     const normalized = normalizeResponse(payload);
@@ -135,10 +97,9 @@ export default function App() {
     });
     setSummary(payload);
     setReviewVisible(true);
+    setAnalysisError(null);
     setLoading(false);
-    setAnalysisState(
-      source === "api" ? "Response received from backend" : "Demo JSON loaded",
-    );
+    setAnalysisState("CV analyzed successfully");
     setConnectionStatus(source === "api" ? "Connected" : "Ready");
   };
 
@@ -149,10 +110,15 @@ export default function App() {
     if (!isPdf) {
       setAnalysisState("File must be a PDF");
       setConnectionStatus("Error");
+      setAnalysisError({
+        title: "Unsupported File Type",
+        message: "Only PDF files are accepted for analysis.",
+      });
       return;
     }
 
     setCurrentFile(file);
+    setAnalysisError(null);
     setAnalysisState("File selected");
     setConnectionStatus("Ready");
   };
@@ -161,45 +127,61 @@ export default function App() {
     if (!currentFile) {
       setAnalysisState("Upload a PDF file first");
       setConnectionStatus("Error");
+      setAnalysisError({
+        title: "No File Selected",
+        message: "Choose a CV file first, then click Analyze File.",
+      });
       return;
     }
 
     setLoading(true);
     setAnalysisState("Analyzing file...");
     setConnectionStatus("Processing");
+    setAnalysisError(null);
 
     try {
       if (!apiUrl.trim()) {
-        await wait(1200);
-        applyPayload(demoResponse, "demo");
-        return;
+        throw new Error("API URL is empty");
       }
 
       const formData = new FormData();
-      formData.append("file", currentFile);
+      formData.append("cv", currentFile);
 
       const response = await fetch(apiUrl.trim(), {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok)
-        throw new Error(`Request failed with status ${response.status}`);
+      const payload = await response.json().catch(() => null);
 
-      const payload = await response.json();
+      if (!response.ok) {
+        const serverMessage =
+          payload?.message || payload?.error || payload?.detail || "Unknown error";
+        throw new Error(
+          `Request failed with status ${response.status}: ${serverMessage}`,
+        );
+      }
+
       applyPayload(payload, "api");
     } catch (error) {
       console.error(error);
-      await wait(900);
-      applyPayload(demoResponse, "demo");
-      setAnalysisState("Connection failed, showing Demo JSON instead");
+      setAnalysisState("Connection failed");
       setConnectionStatus("Error");
+      setAnalysisError({
+        title: "Could Not Reach Analysis Service",
+        message:
+          "The request failed before receiving a valid analysis response.",
+        details: error?.message || "Unknown network error",
+        suggestions: [
+          "Make sure backend is running on port 5000.",
+          "Make sure AI-Service is running on port 8000.",
+          "Check Backend API URL and try again.",
+        ],
+      });
     } finally {
       setLoading(false);
     }
   };
-
-  const handleLoadDemo = () => applyPayload(demoResponse, "demo");
 
   const handleExport = () => {
     const payload = {
@@ -237,6 +219,7 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = "";
     setAnalysisState("File removed");
     setConnectionStatus("Ready");
+    setAnalysisError(null);
     setReviewVisible(false);
   };
 
@@ -256,7 +239,9 @@ export default function App() {
   };
 
   const templateSkills = summary?.extraction?.skills ?? summary?.skills ?? [];
-  const rawSummary = JSON.stringify(summary, null, 2);
+  const rawSummary = summary
+    ? JSON.stringify(summary, null, 2)
+    : "No response yet. Upload a PDF and click Analyze File.";
 
   return (
     <main className="app-shell">
@@ -297,7 +282,11 @@ export default function App() {
               <p className="panel-kicker">1. Upload</p>
               <h2>Drag and Drop PDF</h2>
             </div>
-            <span className="status-pill">{connectionStatus}</span>
+            <span
+              className={`status-pill ${connectionStatus === "Error" ? "error" : ""}`}
+            >
+              {connectionStatus}
+            </span>
           </div>
 
           <div
@@ -334,8 +323,8 @@ export default function App() {
             <div className="dropzone-icon">PDF</div>
             <h3>Drag your CV file here or click to choose</h3>
             <p>
-              PDF files only. The file will be sent to the backend, or the Demo
-              response will be used if the server is unavailable.
+              PDF files only. The file will be sent to backend then AI-Service
+              for analysis.
             </p>
             <button className="ghost-button" type="button" onClick={openPicker}>
               Choose File
@@ -361,7 +350,7 @@ export default function App() {
                 type="text"
                 value={apiUrl}
                 onChange={(event) => setApiUrl(event.target.value)}
-                placeholder="http://localhost:8000/analyze"
+                placeholder="/api/upload-cv"
               />
             </label>
           </div>
@@ -374,13 +363,6 @@ export default function App() {
             >
               Analyze File
             </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={handleLoadDemo}
-            >
-              Load Demo JSON
-            </button>
           </div>
         </article>
 
@@ -390,7 +372,11 @@ export default function App() {
               <p className="panel-kicker">2. Analysis</p>
               <h2>Loading / Spinner</h2>
             </div>
-            <span className="status-pill accent">{analysisState}</span>
+            <span
+              className={`status-pill ${analysisError ? "error" : "accent"}`}
+            >
+              {analysisState}
+            </span>
           </div>
 
           {loading ? (
@@ -405,12 +391,38 @@ export default function App() {
             </div>
           ) : null}
 
+          {analysisError && !loading ? (
+            <div className="error-card" role="alert" aria-live="polite">
+              <div>
+                <strong>{analysisError.title}</strong>
+                <p>{analysisError.message}</p>
+                {analysisError.details ? (
+                  <p className="error-details">{analysisError.details}</p>
+                ) : null}
+                {Array.isArray(analysisError.suggestions) ? (
+                  <ul>
+                    {analysisError.suggestions.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={handleAnalyze}
+              >
+                Retry Analysis
+              </button>
+            </div>
+          ) : null}
+
           <div className="json-summary">
             <h3>Latest Received JSON</h3>
             <p>
               {currentSource === "api"
                 ? "Result received from backend"
-                : "Demo JSON loaded locally"}
+                : "No analysis response yet"}
             </p>
 
             <div className="json-grid">
@@ -601,16 +613,12 @@ export default function App() {
 
           <div className="footer-note">
             <p>
-              This form currently works with Demo JSON or any backend JSON, with
-              editable fields before moving to the interview step.
+              Review and edit the analyzed JSON before moving to the interview
+              step.
             </p>
           </div>
         </section>
       ) : null}
     </main>
   );
-}
-
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
