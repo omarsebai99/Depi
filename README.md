@@ -47,7 +47,17 @@ npm install
 npm run dev
 ```
 
-The backend runs on Express, usually at `http://localhost:3000`.
+Create `Backend/.env` with:
+
+```env
+PORT=5000
+MONGO_URL=your_mongo_atlas_connection_string
+AUTH_SECRET=replace_this_with_a_long_random_secret
+AI_SERVICE_URL=http://localhost:8000
+FRONTEND_URL=http://localhost:5173
+```
+
+wThe backend runs on Express, usually at `http://localhost:5000`.
 
 ### 3. AI Service
 
@@ -64,4 +74,6 @@ The AI service runs on FastAPI, usually at `http://localhost:8000`.
 ## Notes
 
 - Start the backend and AI service before using the frontend features that depend on them.
-- The frontend Vite proxy currently points `/api` to `http://localhost:5000`, while the backend defaults to `http://localhost:3000`. Either set `PORT=5000` for the backend or update `frontend/vite.config.js` to match your backend port.
+- The frontend Vite proxy points `/api` to `http://localhost:5000`.
+- Authentication is required before uploading a CV.
+- Each authenticated user now has a saved Mongo profile and CV history.

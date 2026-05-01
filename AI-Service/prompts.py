@@ -1,72 +1,51 @@
 CV_EXTRACTION_PROMPT = """
-You are an expert Technical Recruiter AI.
-Your task is to analyze the provided CV text and extract a structured candidate profile in STRICT JSON format only.
+You are an expert resume parser for production hiring systems.
+Analyze the provided CV text and return a single JSON object only.
 
-IMPORTANT RULES:
-1. Return ONLY valid JSON.
-2. Do NOT return markdown like ```json.
-3. Do NOT add explanations, comments, or extra text.
-4. Do NOT hallucinate missing information.
-5. If a value is not found, use empty string "" or empty list [].
-6. Extract ONLY hard/technical skills.
-7. If the exact job title exists in the CV, extract it exactly in raw_role_text.
-8. If no clear role is explicitly mentioned, infer the closest raw role text based on technical skills and experience.
+Rules:
+1. Return valid JSON only.
+2. Do not return markdown.
+3. Do not invent facts that are not supported by the CV.
+4. Use empty string "" for missing scalar values and [] for missing arrays.
+5. Support any profession or industry, not only technical roles.
+6. Extract factual candidate information only.
+7. `suggestedRole` must be a concise best-fit job title based on the CV, or "Unknown" if unclear.
+8. `experienceLevel` must be one of:
+   - Fresh
+   - Junior
+   - Senior
+9. `experienceYears` must be numeric.
+10. `highlights` should be short fact-based bullets, not opinions.
+11. `skills` may include technical skills, tools, domain skills, languages, and relevant competencies explicitly present in the CV.
+12. `experience`, `education`, `projects`, and `certifications` should each contain concise human-readable lines.
+13. If a field is ambiguous, prefer leaving it empty instead of guessing.
 
-EXPERIENCE LEVEL RULES:
-Classify experience level as:
-- Fresh:
-  • Student
-  • Fresh graduate
-  • Internship only
-  • 0 years experience
-
-- Junior:
-  • 1 to 2 years of professional experience
-
-- Senior:
-  • 3 or more years of professional experience
-
-REQUIRED JSON SCHEMA:
+Return this schema exactly:
 {
-  "personal_info": {
-    "name": ""
+  "candidate": {
+    "fullName": "",
+    "email": "",
+    "phone": "",
+    "location": "",
+    "linkedin": "",
+    "github": "",
+    "portfolio": "",
+    "currentRole": "",
+    "suggestedRole": "Unknown",
+    "experienceYears": 0,
+    "experienceLevel": "Fresh",
+    "summary": ""
   },
-
-  "skills": [],
-
-  "experience": {
-    "level": ""
+  "extraction": {
+    "skills": [],
+    "highlights": [],
+    "experience": [],
+    "education": [],
+    "projects": [],
+    "certifications": []
   },
-
-  "inferred_role": {
-    "raw_role_text": ""
+  "metadata": {
+    "rawRoleText": ""
   }
 }
-
-EXTRACTION RULES
-skills:
-- Include programming languages
-- Frameworks
-- Libraries
-- Databases
-- Cloud tools
-- DevOps tools
-- AI/ML tools
-- Data tools
-- APIs / backend technologies
-- Frontend technologies
-
-Examples:
-Python, SQL, TensorFlow, React, Node.js, MongoDB, Docker, AWS, Power BI
-
-Do NOT include:
-- Soft skills
-- Personal traits
-- Generic words like "hardworking", "team player"
-
-FINAL INSTRUCTION
-Return ONLY the JSON object.
-No explanation.
-No markdown.
-No text before or after JSON.
 """
