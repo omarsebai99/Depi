@@ -3,16 +3,35 @@ const cors = require("cors");
 const express = require("express");
 const multer = require("multer");
 
-const connectDatabase = require("./db/connectDatabase");
+const connectDatabase = require("./DB/connectDatabase");
 const authRoutes = require("./rotes/auth");
 const profileRoutes = require("./rotes/profile");
 
 const app = express();
 
 app.use(express.json({ limit: "2mb" }));
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://smart-virtual-interview.vercel.app",
+];
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const isLocal =
+        origin.startsWith("http://localhost:") ||
+        origin.startsWith("http://127.0.0.1:");
+      if (allowedOrigins.includes(origin) || isLocal) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
   }),
 );
 

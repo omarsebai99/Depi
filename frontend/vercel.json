@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://smart-virtual-interview-production.up.railway.app/api/:path*"
+    }
+  ]
+}
