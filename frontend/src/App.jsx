@@ -2,6 +2,17 @@ import { useEffect, useRef, useState } from "react";
 
 const AUTH_STORAGE_KEY = "smart-interview-auth-token";
 const THEME_STORAGE_KEY = "smart-interview-theme";
+
+const API_BASE = import.meta.env.VITE_API_URL || "";
+if (API_BASE) {
+  const originalFetch = window.fetch;
+  window.fetch = function (input, init) {
+    if (typeof input === "string" && input.startsWith("/api/")) {
+      input = `${API_BASE}${input}`;
+    }
+    return originalFetch(input, init);
+  };
+}
 const ROUTE_PATHS = {
   login: "/login",
   signup: "/signup",
