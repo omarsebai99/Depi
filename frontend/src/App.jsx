@@ -8,8 +8,9 @@ const ROUTE_PATHS = {
   dashboard: "/dashboard",
   review: "/review",
   profile: "/profile",
+  interview: "/interview",
 };
-const PROTECTED_ROUTES = new Set(["dashboard", "review", "profile"]);
+const PROTECTED_ROUTES = new Set(["dashboard", "review", "profile", "interview"]);
 const PUBLIC_ROUTES = new Set(["login", "signup"]);
 
 const emptyForm = {
@@ -259,6 +260,36 @@ const ParserBadge = ({ profile }) => {
   return <span className={`parser-badge ${badge.tone}`}>{badge.label}</span>;
 };
 
+const CallAvatar = ({ initials, label, active, tone = "interviewer" }) => (
+  <div className={`call-avatar ${tone} ${active ? "active" : ""}`} aria-label={label}>
+    <span>{initials}</span>
+  </div>
+);
+
+const VoiceWave = ({ active, tone = "interviewer" }) => (
+  <div className={`voice-wave ${tone} ${active ? "active" : ""}`} aria-hidden="true">
+    {Array.from({ length: 9 }).map((_, index) => (
+      <span key={index} style={{ animationDelay: `${index * 0.08}s` }} />
+    ))}
+  </div>
+);
+
+const BotOrb = ({ active }) => (
+  <div className={`bot-orb ${active ? "active" : ""}`} aria-hidden="true">
+    <div className="bot-orb-rings">
+      <span />
+      <span />
+      <span />
+    </div>
+    <div className="bot-orb-core">
+      <div className="bot-face">
+        <span />
+        <span />
+      </div>
+    </div>
+  </div>
+);
+
 const ActiveCvBanner = ({ snapshot, profile, title = "Active CV" }) => (
   <div className="active-cv-banner">
     <div className="active-cv-copy">
@@ -311,6 +342,7 @@ const Navigation = ({
 
   const appItems = [
     { id: "dashboard", label: "Dashboard" },
+    { id: "interview", label: "Interview" },
     { id: "review", label: "Review" },
     { id: "profile", label: "Profile" },
   ];
@@ -639,6 +671,14 @@ const DashboardPage = ({
           >
             Open Review Page
           </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setRoute("interview")}
+            disabled={!hasProfileContent(selectedProfile)}
+          >
+            Start Live Interview
+          </button>
         </div>
 
         {saveMessage ? <p className="save-message">{saveMessage}</p> : null}
@@ -868,6 +908,575 @@ const DashboardPage = ({
           </div>
         </div>
       </article>
+    </section>
+  );
+};
+
+const InterviewPage = ({
+  currentProfile,
+  currentSnapshot,
+  startInterviewSession,
+  submitInterviewAnswer,
+  saveInterviewSession,
+  setRoute,
+  saveMessage,
+}) => {
+  const recognitionRef = useRef(null);
+  const [questionCount, setQuestionCount] = useState(5);
+  const [session, setSession] = useState(null);
+  const [entries, setEntries] = useState([]);
+  const [currentAnswer, setCurrentAnswer] = useState("");
+  const [interviewError, setInterviewError] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [speechReady, setSpeechReady] = useState(false);
+  const [recognitionReady, setRecognitionReady] = useState(false);
+  const [interviewerSpeaking, setInterviewerSpeaking] = useState(false);
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+
+  const canInterview = hasProfileContent(currentProfile);
+  const currentQuestion = session?.questions?.[entries.length] || null;
+  const isComplete = Boolean(session && entries.length >= session.questions.length);
+  const averageScore = entries.length
+    ? Math.round(
+        entries.reduce((total, entry) => total + (Number(entry.score) || 0), 0) /
+          entries.length,
+      )
+    : 0;
+  const candidateName =
+    currentProfile.candidate.fullName ||
+    currentProfile.candidate.email ||
+    "Candidate";
+  const candidateInitials = candidateName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "CA";
+  const currentCategory = currentQuestion?.category || "";
+  const sessionStatusLabel = interviewerSpeaking
+    ? "Speaking"
+    : isListening
+      ? "Listening"
+      : session
+        ? "Connected"
+        : "Ready";
+  const formattedTimer = new Date(sessionSeconds * 1000)
+    .toISOString()
+    .slice(11, 19);
+
+  const speakText = (text) => {
+    if (!window.speechSynthesis || !text) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.onstart = () => setInterviewerSpeaking(true);
+    utterance.onend = () => setInterviewerSpeaking(false);
+    utterance.onerror = () => setInterviewerSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    const Recognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    setSpeechReady(Boolean(window.speechSynthesis));
+    setRecognitionReady(Boolean(Recognition));
+
+    if (!Recognition) {
+      return undefined;
+    }
+
+    const recognition = new Recognition();
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript || "")
+        .join(" ")
+        .trim();
+      setCurrentAnswer(transcript);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
+      recognition.stop();
+      recognitionRef.current = null;
+      window.speechSynthesis?.cancel();
+      setInterviewerSpeaking(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session || isComplete) {
+      setSessionSeconds(0);
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setSessionSeconds((previous) => previous + 1);
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [session, isComplete]);
+
+  const handleStart = async () => {
+    if (!canInterview) {
+      setInterviewError("Upload and analyze a CV before starting the interview.");
+      return;
+    }
+
+    setStarting(true);
+    setInterviewError("");
+    setEntries([]);
+    setCurrentAnswer("");
+    setSessionSeconds(0);
+
+    try {
+      const payload = await startInterviewSession(questionCount);
+      setSession(payload);
+      speakText(
+        [payload.interviewerIntro, payload.questions?.[0]?.prompt]
+          .filter(Boolean)
+          .join(" "),
+      );
+    } catch (error) {
+      setInterviewError(error.message || "Failed to start interview session.");
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const handleToggleListening = () => {
+    if (!recognitionRef.current) {
+      setInterviewError("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+
+    setInterviewError("");
+    recognitionRef.current.start();
+    setIsListening(true);
+  };
+
+  const handleSubmitAnswer = async () => {
+    if (!currentQuestion) return;
+
+    const answer = currentAnswer.trim();
+    if (!answer) {
+      setInterviewError("Record or type an answer before submitting.");
+      return;
+    }
+
+    setSubmitting(true);
+    setInterviewError("");
+
+    try {
+      const result = await submitInterviewAnswer({
+        question: currentQuestion.prompt,
+        answer,
+        history: entries,
+      });
+
+      const nextEntries = [
+        ...entries,
+        {
+          question: currentQuestion.prompt,
+          answer,
+          score: result.score,
+          strengths: result.strengths || [],
+          improvements: result.improvements || [],
+          followUpQuestion: result.followUpQuestion || "",
+          coachReply: result.coachReply || "",
+          source: result.source || "",
+        },
+      ];
+
+      setEntries(nextEntries);
+      setCurrentAnswer("");
+
+      const nextQuestion = session?.questions?.[nextEntries.length];
+      speakText(
+        [result.coachReply, nextQuestion?.prompt]
+          .filter(Boolean)
+          .join(" "),
+      );
+    } catch (error) {
+      setInterviewError(error.message || "Failed to evaluate answer.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSaveSession = async () => {
+    if (!entries.length) {
+      setInterviewError("Complete at least one answer before saving notes.");
+      return;
+    }
+
+    setSaving(true);
+    setInterviewError("");
+
+    try {
+      await saveInterviewSession({
+        entries,
+        summary: `Completed ${entries.length} questions with an average score of ${averageScore}/10.`,
+      });
+    } catch (error) {
+      setInterviewError(error.message || "Failed to save interview notes.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!canInterview) {
+    return (
+      <section className="panel empty-state">
+        <p className="panel-kicker">Live Interview</p>
+        <h2>No interview context yet</h2>
+        <p>Analyze a CV first so the interview can adapt to the extracted profile.</p>
+        <div className="action-row">
+          <button className="primary-button" type="button" onClick={() => setRoute("dashboard")}>
+            Go to Dashboard
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="page-stack">
+      <article className="panel interview-hero">
+        <div className="panel-header">
+          <div>
+            <p className="panel-kicker">Live Interview</p>
+            <h2>AI Interview Call</h2>
+            <p className="lead">
+              A focused live session with short personal and technical questions.
+            </p>
+          </div>
+          <span className={`status-pill ${speechReady && recognitionReady ? "accent" : "error"}`}>
+            {speechReady && recognitionReady ? "Voice Ready" : "Voice Limited"}
+          </span>
+        </div>
+
+        <ActiveCvBanner snapshot={currentSnapshot} profile={currentProfile} title="Interviewing From" />
+
+        <div className="call-stage">
+          <article className="call-participant interviewer">
+            <div className="call-card-top">
+              <CallAvatar initials="AI" label="Interviewer avatar" active={interviewerSpeaking} />
+              <div className="call-meta">
+                <strong>AI Interviewer</strong>
+                <span>{interviewerSpeaking ? "Speaking now" : session ? "Waiting for your answer" : "Ready to begin"}</span>
+              </div>
+            </div>
+            <VoiceWave active={interviewerSpeaking} />
+          </article>
+
+          <article className="call-participant candidate">
+            <div className="call-card-top">
+              <CallAvatar
+                initials={candidateInitials}
+                label="Candidate avatar"
+                active={isListening}
+                tone="candidate"
+              />
+              <div className="call-meta">
+                <strong>{candidateName}</strong>
+                <span>{isListening ? "Microphone is live" : "Your turn when ready"}</span>
+              </div>
+            </div>
+            <VoiceWave active={isListening} tone="candidate" />
+          </article>
+        </div>
+
+        <div className="interview-setup-grid">
+          <div className="json-box">
+            <strong>role target</strong>
+            <p>
+              {currentProfile.candidate.suggestedRole ||
+                currentProfile.candidate.currentRole ||
+                "Role not detected"}
+            </p>
+          </div>
+          <div className="json-box">
+            <strong>question count</strong>
+            <label className="field">
+              <span>Choose session length</span>
+              <select
+                value={questionCount}
+                onChange={(event) => setQuestionCount(Number(event.target.value))}
+              >
+                {[3, 4, 5, 6].map((value) => (
+                  <option key={value} value={value}>
+                    {value} questions
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="json-box">
+            <strong>voice support</strong>
+            <p>
+              STT: {recognitionReady ? "available" : "not available"}<br />
+              TTS: {speechReady ? "available" : "not available"}
+            </p>
+          </div>
+        </div>
+
+        <div className="action-row">
+          <button className="primary-button" type="button" onClick={handleStart} disabled={starting}>
+            {starting ? "Preparing..." : session ? "Restart Session" : "Start Session"}
+          </button>
+          <button className="secondary-button" type="button" onClick={() => speakText(currentQuestion?.prompt || session?.interviewerIntro || "")} disabled={!session}>
+            Replay Prompt
+          </button>
+          <button className="secondary-button" type="button" onClick={() => setRoute("review")}>
+            Open Review Notes
+          </button>
+        </div>
+
+        {interviewError ? <p className="inline-error">{interviewError}</p> : null}
+        {saveMessage ? <p className="save-message">{saveMessage}</p> : null}
+      </article>
+
+      {session ? (
+        <>
+          <article className="panel session-screen">
+            <div className="session-topbar">
+              <div className="session-brand">
+                <span>smart</span>
+                <strong>INTERVIEWS</strong>
+              </div>
+              <div className="session-pill">
+                <span className="session-dot" />
+                {formattedTimer}
+              </div>
+            </div>
+
+            <div className="session-canvas">
+              <div className="session-center">
+                <h3 className="session-host-name">AI Interviewer</h3>
+                <span className="session-status">{sessionStatusLabel}</span>
+                <BotOrb active={interviewerSpeaking} />
+                <div className="session-question-block">
+                  <span
+                    className={`meeting-chip ${currentCategory.toLowerCase() === "technical" ? "technical" : "personal"}`}
+                  >
+                    {isComplete ? "Summary" : currentCategory || "Personal"}
+                  </span>
+                  <p className="session-question-text">
+                    {isComplete
+                      ? `Session complete with an average score of ${averageScore}/10.`
+                      : currentQuestion?.prompt}
+                  </p>
+                </div>
+                {!isComplete ? (
+                  <button
+                    className="session-stop-button"
+                    type="button"
+                    onClick={() => {
+                      window.speechSynthesis?.cancel();
+                      setInterviewerSpeaking(false);
+                    }}
+                  >
+                    Stop speaking
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="session-candidate-tile">
+                <div className="session-candidate-frame">
+                  <CallAvatar
+                    initials={candidateInitials}
+                    label="Candidate session avatar"
+                    active={isListening}
+                    tone="candidate"
+                  />
+                  <VoiceWave active={isListening} tone="candidate" />
+                </div>
+                <div className="session-candidate-meta">
+                  <strong>{candidateName}</strong>
+                  <span>
+                    {currentProfile.candidate.currentRole ||
+                      currentProfile.candidate.suggestedRole ||
+                      "Candidate"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="session-controls">
+              <button
+                className={`control-button ${isListening ? "active" : ""}`}
+                type="button"
+                onClick={handleToggleListening}
+                disabled={isComplete}
+                aria-label={isListening ? "Stop microphone" : "Start microphone"}
+              >
+                M
+              </button>
+              <button
+                className="control-button"
+                type="button"
+                onClick={() =>
+                  speakText(currentQuestion?.prompt || session?.interviewerIntro || "")
+                }
+                aria-label="Replay question"
+              >
+                S
+              </button>
+              <button
+                className="control-button danger"
+                type="button"
+                onClick={() => setRoute("dashboard")}
+                aria-label="Leave session"
+              >
+                E
+              </button>
+            </div>
+          </article>
+
+          <section className="page-grid interview-grid">
+            <article className="panel interview-side-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="panel-kicker">Session Notes</p>
+                  <h3>
+                    {isComplete
+                      ? "Interview finished"
+                      : `Question ${entries.length + 1} of ${session.questions.length}`}
+                  </h3>
+                </div>
+                <span className="status-pill accent">{session.source || "session"}</span>
+              </div>
+
+              <div className="json-box">
+                <strong>Interview Style</strong>
+                <p className="box-paragraph">
+                  Personal and technical questions only, with shorter prompts and a softer tone.
+                </p>
+              </div>
+
+              <div className="json-box">
+                <strong>Focus Areas</strong>
+                <ul>{renderItems(session.focusAreas, "No focus areas returned")}</ul>
+              </div>
+
+              <div className="json-box">
+                <strong>Current Prompt Context</strong>
+                <p className="box-paragraph">
+                  {isComplete
+                    ? "Save the coaching notes to attach them to this CV profile."
+                    : currentQuestion?.why || "The interviewer is guiding the session."}
+                </p>
+              </div>
+            </article>
+
+            <article className="panel interview-side-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="panel-kicker">Your Side</p>
+                  <h3>Speak naturally or type</h3>
+                </div>
+              </div>
+
+              {!isComplete ? (
+                <>
+                  <label className="field answer-field">
+                    <span>Your answer</span>
+                    <textarea
+                      rows={8}
+                      value={currentAnswer}
+                      onChange={(event) => setCurrentAnswer(event.target.value)}
+                      placeholder="Speak into the microphone or type your answer here."
+                    />
+                  </label>
+
+                  <div className="action-row">
+                    <button
+                      className={isListening ? "danger-button" : "secondary-button"}
+                      type="button"
+                      onClick={handleToggleListening}
+                    >
+                      {isListening ? "Mute Microphone" : "Open Microphone"}
+                    </button>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={handleSubmitAnswer}
+                      disabled={submitting}
+                    >
+                      {submitting ? "Evaluating..." : "Submit Answer"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="action-row">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={handleSaveSession}
+                    disabled={saving}
+                  >
+                    {saving ? "Saving..." : "Save Interview Notes"}
+                  </button>
+                </div>
+              )}
+
+              <div className="interview-history">
+                {entries.length ? (
+                  entries.map((entry, index) => (
+                    <article className="history-card interview-history-card" key={`${entry.question}-${index}`}>
+                      <div className="history-card-header">
+                        <strong>{entry.question}</strong>
+                        <span className="status-pill accent">{entry.score}/10</span>
+                      </div>
+                      <div className="meeting-bubble candidate-bubble transcript-bubble">
+                        <p className="box-paragraph">{entry.answer}</p>
+                      </div>
+                      <p className="history-coach">{entry.coachReply}</p>
+                      <div className="interview-feedback-grid">
+                        <div className="json-box compact-box">
+                          <strong>strengths</strong>
+                          <ul>{renderItems(entry.strengths, "No strengths returned")}</ul>
+                        </div>
+                        <div className="json-box compact-box">
+                          <strong>improve</strong>
+                          <ul>{renderItems(entry.improvements, "No improvements returned")}</ul>
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="empty-state compact-empty">
+                    <p>Your submitted answers and coaching feedback will appear here.</p>
+                  </div>
+                )}
+              </div>
+            </article>
+          </section>
+        </>
+      ) : null}
     </section>
   );
 };
@@ -2066,6 +2675,74 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const startInterview = async (questionCount) => {
+    const response = await fetch("/api/profile/interview/session/start", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ questionCount }),
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        payload?.message || payload?.error || "Failed to start interview session",
+      );
+    }
+
+    return payload?.data || payload;
+  };
+
+  const submitInterviewAnswer = async ({ question, answer, history }) => {
+    const response = await fetch("/api/profile/interview/session/answer", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ question, answer, history }),
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        payload?.message || payload?.error || "Failed to evaluate interview answer",
+      );
+    }
+
+    return payload?.data || payload;
+  };
+
+  const saveInterviewSession = async ({ entries, summary }) => {
+    setSaveMessage("");
+
+    const response = await fetch("/api/profile/interview/session/save", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        entries,
+        summary,
+        cvId: selectedCvId,
+      }),
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        payload?.message || payload?.error || "Failed to save interview session",
+      );
+    }
+
+    applyServerState(payload, "Interview session saved", selectedCvId);
+    setSaveMessage("Interview notes saved to the current profile");
+    return payload;
+  };
+
   const openPicker = () => {
     if (!token) {
       setAnalysisError({
@@ -2099,6 +2776,9 @@ export default function App() {
     setAnalysisState(`Loaded saved CV: ${snapshot.fileName}`);
   };
 
+  const activeSnapshot =
+    cvHistory.find((item) => item.id === selectedCvId) || cvHistory[0] || null;
+
   let page = null;
 
   if (!token) {
@@ -2123,10 +2803,20 @@ export default function App() {
         handleExport={handleExport}
         saveMessage={saveMessage}
         reviewVisible={reviewVisible}
-        currentSnapshot={
-          cvHistory.find((item) => item.id === selectedCvId) || null
-        }
+        currentSnapshot={activeSnapshot}
         openStoredCv={openStoredCv}
+      />
+    );
+  } else if (route === "interview") {
+    page = (
+      <InterviewPage
+        currentProfile={currentProfile}
+        currentSnapshot={activeSnapshot}
+        startInterviewSession={startInterview}
+        submitInterviewAnswer={submitInterviewAnswer}
+        saveInterviewSession={saveInterviewSession}
+        setRoute={setRoute}
+        saveMessage={saveMessage}
       />
     );
   } else if (route === "profile") {

@@ -5,7 +5,11 @@ const fs = require("fs/promises");
 const requireAuth = require("../middlewares/authMiddleware");
 const upload = require("../middlewares/uploadMiddleware");
 const User = require("../models/User");
-const sendCVToPython = require("../services/pythonService");
+const {
+  sendCVToPython,
+  startInterviewSession,
+  evaluateInterviewAnswer,
+} = require("../services/pythonService");
 const {
   openDownloadStream,
   uploadFileToGridFS,
@@ -54,6 +58,133 @@ const getCvSnapshot = (user, cvId) => {
 
 router.get("/me", requireAuth, async (req, res) => {
   res.json(buildProfileResponse(req.user));
+});
+
+router.post("/interview/session/start", requireAuth, async (req, res) => {
+  try {
+    const questionCount = Number(req.body?.questionCount) || 5;
+    const aiResult = await startInterviewSession({
+      profile: normalizeProfile(req.user.profile),
+      question_count: questionCount,
+    });
+
+    res.json(aiResult);
+  } catch (error) {
+    const statusCode = error.statusCode || error.response?.status || 500;
+    const upstreamMessage =
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      error.message;
+
+    res.status(statusCode).json({
+      status: "error",
+      message: "Failed to start interview session",
+      error: upstreamMessage,
+    });
+  }
+});
+
+router.post("/interview/session/answer", requireAuth, async (req, res) => {
+  try {
+    const question = String(req.body?.question || "").trim();
+    const answer = String(req.body?.answer || "").trim();
+    const history = Array.isArray(req.body?.history) ? req.body.history : [];
+
+    if (!question || !answer) {
+      return res.status(400).json({
+        status: "error",
+        message: "question and answer are required",
+      });
+    }
+
+    const aiResult = await evaluateInterviewAnswer({
+      profile: normalizeProfile(req.user.profile),
+      question,
+      answer,
+      history,
+    });
+
+    res.json(aiResult);
+  } catch (error) {
+    const statusCode = error.statusCode || error.response?.status || 500;
+    const upstreamMessage =
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      error.message;
+
+    res.status(statusCode).json({
+      status: "error",
+      message: "Failed to evaluate interview answer",
+      error: upstreamMessage,
+    });
+  }
+});
+
+router.post("/interview/session/save", requireAuth, async (req, res) => {
+  try {
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    const summary = String(req.body?.summary || "").trim();
+    const requestedCvId = String(req.body?.cvId || "").trim();
+    const notes = [];
+
+    if (summary) {
+      notes.push(`Session Summary: ${summary}`);
+    }
+
+    entries.forEach((entry, index) => {
+      const question = String(entry?.question || "").trim();
+      const answer = String(entry?.answer || "").trim();
+      const score = Number(entry?.score);
+      const coachReply = String(entry?.coachReply || "").trim();
+
+      if (question) {
+        notes.push(`Q${index + 1}: ${question}`);
+      }
+      if (answer) {
+        notes.push(`A${index + 1}: ${answer}`);
+      }
+      if (Number.isFinite(score)) {
+        notes.push(`Score ${index + 1}: ${score}/10`);
+      }
+      if (coachReply) {
+        notes.push(`Coach ${index + 1}: ${coachReply}`);
+      }
+    });
+
+    const currentProfile = normalizeProfile(req.user.profile);
+    const existingNotes = currentProfile.extraction.interviewNotes;
+    const nextProfile = normalizeProfile(
+      {
+        ...currentProfile,
+        extraction: {
+          ...currentProfile.extraction,
+          interviewNotes: [...existingNotes, ...notes],
+        },
+      },
+      req.user.profile,
+      { touch: true },
+    );
+    req.user.profile = nextProfile;
+
+    if (requestedCvId) {
+      const snapshot = req.user.cvs.id(requestedCvId);
+      if (snapshot) {
+        snapshot.profile = nextProfile;
+      }
+    } else if (req.user.cvs.length) {
+      req.user.cvs[req.user.cvs.length - 1].profile = nextProfile;
+    }
+
+    await req.user.save();
+    const freshUser = await reloadUser(req.user._id);
+
+    res.json(buildProfileResponse(freshUser, "Interview notes saved successfully"));
+  } catch (error) {
+    res.status(error.statusCode || 500).json({
+      status: "error",
+      message: error.message || "Failed to save interview notes",
+    });
+  }
 });
 
 router.put("/me", requireAuth, async (req, res) => {
