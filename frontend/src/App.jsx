@@ -156,10 +156,14 @@ const normalizeProfilePayload = (payload) => {
         },
       }))
     : [];
+  const interviewSessions = Array.isArray(root.interviewSessions)
+    ? root.interviewSessions
+    : [];
 
   return {
     user,
     cvs,
+    interviewSessions,
     profile: {
       candidate: {
         ...emptyProfile.candidate,
@@ -240,6 +244,14 @@ const renderItems = (items, emptyMessage) => {
   return items.map((item) => <li key={item}>{item}</li>);
 };
 
+const renderItemsCustom = (items, emptyMessage, className) => {
+  if (!items?.length) {
+    return <li className="empty-li">{emptyMessage}</li>;
+  }
+
+  return items.map((item) => <li key={item} className={className}>{item}</li>);
+};
+
 const getParserBadge = (profile) => {
   const llmStatus = profile?.metadata?.llmStatus || "";
 
@@ -288,6 +300,60 @@ const BotOrb = ({ active }) => (
       </div>
     </div>
   </div>
+);
+
+const MicIcon = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+    <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+    <line x1="12" x2="12" y1="19" y2="22" />
+  </svg>
+);
+
+const MicOffIcon = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+    <line x1="2" x2="22" y1="2" y2="22" />
+    <path d="M18.89 13.23A7.12 7.12 0 0 1 19 11v-1" />
+    <path d="M5 10v1a7 7 0 0 0 10.8 5.86" />
+    <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+    <path d="M15 9.34V5a3 3 0 0 0-5.94-.6" />
+    <line x1="12" x2="12" y1="19" y2="22" />
+  </svg>
+);
+
+const SpeakerIcon = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+  </svg>
+);
+
+const EndCallIcon = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+    <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" />
+  </svg>
+);
+
+const CheckIcon = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+const WarningIcon = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+    <line x1="12" x2="12" y1="9" y2="13" />
+    <line x1="12" x2="12.01" y1="17" y2="17" />
+  </svg>
+);
+
+const SparklesIcon = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+    <path d="m5 3 1 2.5L8.5 6 6 7 5 9.5 4 7 1.5 6 4 5 5 3Z" />
+  </svg>
 );
 
 const ActiveCvBanner = ({ snapshot, profile, title = "Active CV" }) => (
@@ -970,6 +1036,10 @@ const InterviewPage = ({
   const speakText = (text) => {
     if (!window.speechSynthesis || !text) return;
     window.speechSynthesis.cancel();
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1;
     utterance.pitch = 1;
@@ -991,7 +1061,7 @@ const InterviewPage = ({
 
     const recognition = new Recognition();
     recognition.lang = "en-US";
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
 
     recognition.onresult = (event) => {
@@ -1327,31 +1397,31 @@ const InterviewPage = ({
 
             <div className="session-controls">
               <button
-                className={`control-button ${isListening ? "active" : ""}`}
+                className={`control-button mic-button ${isListening ? "active" : ""}`}
                 type="button"
                 onClick={handleToggleListening}
                 disabled={isComplete}
                 aria-label={isListening ? "Stop microphone" : "Start microphone"}
               >
-                M
+                {isListening ? <MicIcon className="icon-mic" /> : <MicOffIcon className="icon-mic" />}
               </button>
               <button
-                className="control-button"
+                className="control-button replay-button"
                 type="button"
                 onClick={() =>
                   speakText(currentQuestion?.prompt || session?.interviewerIntro || "")
                 }
                 aria-label="Replay question"
               >
-                S
+                <SpeakerIcon className="icon-speaker" />
               </button>
               <button
-                className="control-button danger"
+                className="control-button danger end-button"
                 type="button"
                 onClick={() => setRoute("dashboard")}
                 aria-label="Leave session"
               >
-                E
+                <EndCallIcon className="icon-end" />
               </button>
             </div>
           </article>
@@ -1448,21 +1518,41 @@ const InterviewPage = ({
                   entries.map((entry, index) => (
                     <article className="history-card interview-history-card" key={`${entry.question}-${index}`}>
                       <div className="history-card-header">
-                        <strong>{entry.question}</strong>
-                        <span className="status-pill accent">{entry.score}/10</span>
+                        <div className="history-card-title-row">
+                          <span className="history-q-badge">Question {index + 1}</span>
+                          <strong className="history-q-text">{entry.question}</strong>
+                        </div>
+                        <span className={`status-pill score-pill ${Number(entry.score) >= 7 ? "excellent" : Number(entry.score) >= 5 ? "passing" : "poor"}`}>
+                          {entry.score}/10
+                        </span>
                       </div>
                       <div className="meeting-bubble candidate-bubble transcript-bubble">
+                        <span className="bubble-label">Your Response</span>
                         <p className="box-paragraph">{entry.answer}</p>
                       </div>
-                      <p className="history-coach">{entry.coachReply}</p>
-                      <div className="interview-feedback-grid">
-                        <div className="json-box compact-box">
-                          <strong>strengths</strong>
-                          <ul>{renderItems(entry.strengths, "No strengths returned")}</ul>
+                      {entry.coachReply && (
+                        <div className="coach-reply-card">
+                          <div className="coach-card-header">
+                            <SparklesIcon className="icon-sparkles" />
+                            <strong>AI Coach Feedback</strong>
+                          </div>
+                          <p className="history-coach">{entry.coachReply}</p>
                         </div>
-                        <div className="json-box compact-box">
-                          <strong>improve</strong>
-                          <ul>{renderItems(entry.improvements, "No improvements returned")}</ul>
+                      )}
+                      <div className="interview-feedback-grid">
+                        <div className="json-box compact-box strengths-box">
+                          <div className="feedback-box-header">
+                            <CheckIcon className="icon-check" />
+                            <strong>Strengths</strong>
+                          </div>
+                          <ul>{renderItemsCustom(entry.strengths, "No strengths returned", "strength-item")}</ul>
+                        </div>
+                        <div className="json-box compact-box improvements-box">
+                          <div className="feedback-box-header">
+                            <WarningIcon className="icon-warning" />
+                            <strong>Improvements</strong>
+                          </div>
+                          <ul>{renderItemsCustom(entry.improvements, "No improvements returned", "improvement-item")}</ul>
                         </div>
                       </div>
                     </article>
@@ -1927,6 +2017,7 @@ const ProfilePage = ({
   user,
   currentProfile,
   cvHistory,
+  interviewSessions = [],
   selectedCvId,
   loadSnapshot,
   openStoredCv,
@@ -1937,6 +2028,12 @@ const ProfilePage = ({
   resettingProfile,
   saveMessage,
 }) => {
+  const [expandedSessionId, setExpandedSessionId] = useState(null);
+
+  const toggleSession = (id) => {
+    setExpandedSessionId(expandedSessionId === id ? null : id);
+  };
+
   const selected =
     cvHistory.find((item) => item.id === selectedCvId) || cvHistory[0] || null;
   const leadSkills = currentProfile.extraction.skills?.slice(0, 8) || [];
@@ -2137,6 +2234,133 @@ const ProfilePage = ({
         </article>
       </section>
 
+      <article className="panel interview-sessions-panel" style={{ marginTop: "24px" }}>
+        <div className="panel-header">
+          <div>
+            <p className="panel-kicker">Mock Interviews</p>
+            <h2>Interview Sessions History</h2>
+          </div>
+          <span className="count-badge">{interviewSessions.length} sessions</span>
+        </div>
+
+        {interviewSessions.length ? (
+          <div className="sessions-list">
+            {interviewSessions.map((session) => {
+              const isExpanded = expandedSessionId === session.id;
+              const dateStr = formatDateTime(session.createdAt);
+              const scoreTone = session.averageScore >= 7 ? "excellent" : session.averageScore >= 5 ? "passing" : "poor";
+
+              return (
+                <div key={session.id} className={`session-history-card ${isExpanded ? "expanded" : ""}`}>
+                  <div className="session-card-header" onClick={() => toggleSession(session.id)}>
+                    <div className="session-card-meta">
+                      <span className="session-date">{dateStr}</span>
+                      {session.summary && (
+                        <p className="session-summary-preview">{session.summary}</p>
+                      )}
+                    </div>
+                    <div className="session-card-actions">
+                      <span className={`score-badge tone-${scoreTone}`}>
+                        Avg Score: {session.averageScore}/10
+                      </span>
+                      <button className="text-button toggle-details-btn" type="button">
+                        {isExpanded ? "Hide Details" : "Show Details"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="session-card-body">
+                      {session.summary && (
+                        <div className="overall-feedback-box">
+                          <div className="feedback-title-row">
+                            <SparklesIcon className="sparkle-gold" />
+                            <strong>Overall Session Feedback</strong>
+                          </div>
+                          <p>{session.summary}</p>
+                        </div>
+                      )}
+
+                      <div className="session-questions-list">
+                        {session.entries.map((entry, idx) => {
+                          const entryScoreTone = entry.score >= 7 ? "excellent" : entry.score >= 5 ? "passing" : "poor";
+                          return (
+                            <div key={idx} className="session-question-card">
+                              <div className="q-card-header">
+                                <span className="q-num-badge">Q{idx + 1}</span>
+                                <span className={`score-badge tone-${entryScoreTone}`}>
+                                  Score: {entry.score}/10
+                                </span>
+                              </div>
+                              
+                              <div className="q-content-row">
+                                <strong>Question:</strong>
+                                <p>{entry.question}</p>
+                              </div>
+
+                              <div className="q-content-row">
+                                <strong>Candidate Answer:</strong>
+                                <p className="candidate-answer-text">{entry.answer}</p>
+                              </div>
+
+                              <div className="coaching-grid-split">
+                                {entry.strengths && entry.strengths.length > 0 && (
+                                  <div className="feedback-section strengths-box">
+                                    <div className="section-title">
+                                      <CheckIcon className="icon-green" />
+                                      <span>Key Strengths</span>
+                                    </div>
+                                    <ul>
+                                      {entry.strengths.map((str, sIdx) => (
+                                        <li key={sIdx}>{str}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+
+                                {entry.improvements && entry.improvements.length > 0 && (
+                                  <div className="feedback-section improvements-box">
+                                    <div className="section-title">
+                                      <WarningIcon className="icon-amber" />
+                                      <span>Areas for Improvement</span>
+                                    </div>
+                                    <ul>
+                                      {entry.improvements.map((imp, iIdx) => (
+                                        <li key={iIdx}>{imp}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+
+                              {entry.coachReply && (
+                                <div className="coach-reply-box-glass">
+                                  <div className="coach-title-row">
+                                    <SparklesIcon className="sparkle-gold" />
+                                    <span>AI Coach Feedback & Advice</span>
+                                  </div>
+                                  <p>{entry.coachReply}</p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <p className="panel-kicker">Mock Interviews</p>
+            <h2>No interview sessions saved yet</h2>
+            <p>Go to the Interview page, complete a session, and click "Save Session Results".</p>
+          </div>
+        )}
+      </article>
+
       <article className="panel reset-panel">
         <div className="panel-header">
           <div>
@@ -2186,6 +2410,7 @@ export default function App() {
   const [currentResponse, setCurrentResponse] = useState(null);
   const [currentProfile, setCurrentProfile] = useState(emptyProfile);
   const [cvHistory, setCvHistory] = useState([]);
+  const [interviewSessions, setInterviewSessions] = useState([]);
   const [selectedCvId, setSelectedCvId] = useState("");
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(
@@ -2261,6 +2486,7 @@ export default function App() {
     setCurrentProfile(selectedSnapshot?.profile || normalized.profile);
     setUser(normalized.user || null);
     setCvHistory(normalized.cvs || []);
+    setInterviewSessions(normalized.interviewSessions || []);
     setSelectedCvId(resolvedCvId);
     setForm(
       buildFormFromProfile(selectedSnapshot?.profile || normalized.profile),
@@ -2825,6 +3051,7 @@ export default function App() {
         user={user}
         currentProfile={currentProfile}
         cvHistory={cvHistory}
+        interviewSessions={interviewSessions}
         selectedCvId={selectedCvId}
         loadSnapshot={loadSnapshot}
         openStoredCv={openStoredCv}

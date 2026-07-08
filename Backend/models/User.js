@@ -77,6 +77,29 @@ const cvSnapshotSchema = new mongoose.Schema(
   { _id: true },
 );
 
+const interviewEntrySchema = new mongoose.Schema(
+  {
+    question: { type: String, default: "" },
+    answer: { type: String, default: "" },
+    score: { type: Number, default: 0 },
+    strengths: stringArrayField,
+    improvements: stringArrayField,
+    coachReply: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const interviewSessionSchema = new mongoose.Schema(
+  {
+    summary: { type: String, default: "" },
+    averageScore: { type: Number, default: 0 },
+    entries: { type: [interviewEntrySchema], default: [] },
+    cvId: { type: String, default: "" },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: true }
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -84,6 +107,7 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true },
     profile: { type: profileSchema, default: () => ({}) },
     cvs: { type: [cvSnapshotSchema], default: [] },
+    interviewSessions: { type: [interviewSessionSchema], default: [] },
   },
   {
     timestamps: true,

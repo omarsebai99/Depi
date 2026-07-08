@@ -229,10 +229,27 @@ const serializeUser = (user) => ({
   updatedAt: user.updatedAt,
 });
 
+const serializeInterviewSession = (session) => ({
+  id: String(session._id),
+  summary: session.summary || "",
+  averageScore: toNumber(session.averageScore, 0),
+  entries: (session.entries || []).map((entry) => ({
+    question: entry.question || "",
+    answer: entry.answer || "",
+    score: toNumber(entry.score, 0),
+    strengths: toStringArray(entry.strengths),
+    improvements: toStringArray(entry.improvements),
+    coachReply: entry.coachReply || "",
+  })),
+  cvId: session.cvId || "",
+  createdAt: session.createdAt,
+});
+
 module.exports = {
   emptyProfile,
   normalizeProfile,
   profileFromAnalysisResult,
   serializeCv,
   serializeUser,
+  serializeInterviewSession,
 };

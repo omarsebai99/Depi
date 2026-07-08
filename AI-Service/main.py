@@ -1,3 +1,5 @@
+import json
+import os
 import fitz
 import re
 from datetime import datetime, timezone
@@ -5,6 +7,8 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from CV_Parser.Extraction import extract_and_infer_profile, test_llm_connection
+from groq import Groq
+from prompts import INTERVIEW_EVALUATION_PROMPT, INTERVIEW_QUESTION_PROMPT
 
 app = FastAPI(
     title="AI Service",
@@ -149,6 +153,248 @@ class CVRequest(BaseModel):
     clean_cv_text: str
 
 
+class InterviewSessionRequest(BaseModel):
+    profile: dict
+    question_count: int = 5
+
+
+class InterviewAnswerRequest(BaseModel):
+    profile: dict
+    question: str
+    answer: str
+    history: list[dict] = []
+
+
+def get_groq_client():
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise ValueError("GROQ_API_KEY is not set")
+    return Groq(api_key=api_key)
+
+
+def normalize_text(value):
+    return " ".join(str(value or "").split()).strip()
+
+
+def normalize_list(values):
+    return [normalize_text(value) for value in values or [] if normalize_text(value)]
+
+
+def sanitize_profile_for_interview(profile):
+    candidate = profile.get("candidate", {}) if isinstance(profile, dict) else {}
+    extraction = profile.get("extraction", {}) if isinstance(profile, dict) else {}
+
+    return {
+        "candidate": {
+            "fullName": normalize_text(candidate.get("fullName")),
+            "currentRole": normalize_text(candidate.get("currentRole")),
+            "suggestedRole": normalize_text(candidate.get("suggestedRole")),
+            "experienceYears": candidate.get("experienceYears", 0),
+            "experienceLevel": normalize_text(candidate.get("experienceLevel")),
+            "summary": normalize_text(candidate.get("summary")),
+        },
+        "extraction": {
+            "skills": normalize_list(extraction.get("skills")),
+            "highlights": normalize_list(extraction.get("highlights")),
+            "experience": normalize_list(extraction.get("experience")),
+            "projects": normalize_list(extraction.get("projects")),
+            "certifications": normalize_list(extraction.get("certifications")),
+        },
+    }
+
+
+def fallback_interview_plan(profile, question_count=5):
+    candidate = profile["candidate"]
+    extraction = profile["extraction"]
+    target_role = (
+        candidate.get("suggestedRole")
+        or candidate.get("currentRole")
+        or "the target role"
+    )
+    focus_areas = normalize_list(
+        [
+            target_role,
+            *extraction.get("skills", [])[:2],
+            *extraction.get("projects", [])[:1],
+            "communication",
+        ]
+    )[:4]
+
+    questions = [
+        {
+            "id": "q1",
+            "category": "Personal",
+            "prompt": f"Tell me a bit about yourself and why you want {target_role}.",
+            "why": "Opens the interview with role motivation and self-presentation.",
+        },
+        {
+            "id": "q2",
+            "category": "Personal",
+            "prompt": "What project from your CV are you most proud of?",
+            "why": "Checks ownership, impact, and storytelling.",
+        },
+        {
+            "id": "q3",
+            "category": "Technical",
+            "prompt": (
+                f"What skill will help you most as a {target_role}, and where did you use it?"
+            ),
+            "why": "Connects declared skills to real experience.",
+        },
+        {
+            "id": "q4",
+            "category": "Technical",
+            "prompt": "Tell me about a technical problem you solved in a project.",
+            "why": "Assesses reasoning, resilience, and execution.",
+        },
+        {
+            "id": "q5",
+            "category": "Personal",
+            "prompt": "What skill would you like to improve next?",
+            "why": "Measures self-awareness and growth mindset.",
+        },
+    ]
+
+    return {
+        "interviewerIntro": (
+            f"Hi {candidate.get('fullName') or 'there'}, I will simulate a live interview for "
+            f"{target_role}. Answer naturally, and I will give coaching feedback after each response."
+        ),
+        "focusAreas": focus_areas,
+        "questions": questions[: max(1, min(question_count, len(questions)))],
+    }
+
+
+def parse_json_response(text):
+    cleaned = str(text or "").strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    if cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+
+    if cleaned.startswith("{") and cleaned.endswith("}"):
+        return json.loads(cleaned)
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(cleaned[start : end + 1])
+
+    return json.loads(cleaned)
+
+
+def request_interview_plan(profile, question_count=5):
+    client = get_groq_client()
+    model = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+    prompt_payload = json.dumps(
+        {
+            "questionCount": question_count,
+            "profile": profile,
+        },
+        ensure_ascii=False,
+    )
+
+    completion = client.chat.completions.create(
+        model=model,
+        temperature=0.4,
+        messages=[
+            {"role": "system", "content": INTERVIEW_QUESTION_PROMPT},
+            {"role": "user", "content": prompt_payload},
+        ],
+    )
+    parsed = parse_json_response(completion.choices[0].message.content)
+    questions = parsed.get("questions") if isinstance(parsed, dict) else None
+    if not isinstance(questions, list) or not questions:
+        raise ValueError("Interview plan did not return any questions")
+    return {
+        "interviewerIntro": normalize_text(parsed.get("interviewerIntro")),
+        "focusAreas": normalize_list(parsed.get("focusAreas"))[:6],
+        "questions": [
+            {
+                "id": normalize_text(item.get("id")) or f"q{index + 1}",
+                "category": normalize_text(item.get("category")) or "general",
+                "prompt": normalize_text(item.get("prompt")),
+                "why": normalize_text(item.get("why")),
+            }
+            for index, item in enumerate(questions)
+            if normalize_text(item.get("prompt"))
+        ][: max(1, question_count)],
+    }
+
+
+def evaluate_answer_fallback(question, answer):
+    answer_text = normalize_text(answer)
+    word_count = len(answer_text.split())
+    score = 5
+
+    if word_count >= 25:
+        score += 2
+    if word_count >= 45:
+        score += 1
+    if any(token in answer_text.lower() for token in ["because", "result", "impact", "learned", "improved"]):
+        score += 1
+    score = max(3, min(score, 9))
+
+    strengths = []
+    improvements = []
+
+    if word_count >= 25:
+        strengths.append("You gave enough detail to understand your thinking.")
+    else:
+        improvements.append("Add more detail so the interviewer can judge your contribution.")
+
+    if any(token in answer_text.lower() for token in ["result", "impact", "improved", "increased", "reduced"]):
+        strengths.append("You hinted at outcomes, which makes the answer stronger.")
+    else:
+        improvements.append("Mention the result or impact of your work.")
+
+    if not improvements:
+        improvements.append("Make the structure even clearer using situation, action, and result.")
+
+    return {
+        "score": score,
+        "strengths": strengths or ["Your answer addressed the question directly."],
+        "improvements": improvements[:2],
+        "followUpQuestion": f"Can you give one specific example related to: {normalize_text(question)}",
+        "coachReply": "Solid start. Tighten the structure and make your impact more explicit.",
+    }
+
+
+def request_answer_evaluation(profile, question, answer, history):
+    client = get_groq_client()
+    model = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+    prompt_payload = json.dumps(
+        {
+            "profile": profile,
+            "question": normalize_text(question),
+            "answer": normalize_text(answer),
+            "history": history[-3:],
+        },
+        ensure_ascii=False,
+    )
+
+    completion = client.chat.completions.create(
+        model=model,
+        temperature=0.3,
+        messages=[
+            {"role": "system", "content": INTERVIEW_EVALUATION_PROMPT},
+            {"role": "user", "content": prompt_payload},
+        ],
+    )
+    parsed = parse_json_response(completion.choices[0].message.content)
+
+    return {
+        "score": max(1, min(int(parsed.get("score", 0) or 0), 10)),
+        "strengths": normalize_list(parsed.get("strengths"))[:3],
+        "improvements": normalize_list(parsed.get("improvements"))[:3],
+        "followUpQuestion": normalize_text(parsed.get("followUpQuestion")),
+        "coachReply": normalize_text(parsed.get("coachReply")),
+    }
+
+
 def extract_text_from_pdf(file_bytes):
     pages = []
     pdf = fitz.open(stream=file_bytes, filetype="pdf")
@@ -287,5 +533,64 @@ async def analyze_cv(file: UploadFile = File(...)):
         }
     except HTTPException:
         raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.post("/interview/session/start")
+async def start_interview_session(request: InterviewSessionRequest):
+    profile = sanitize_profile_for_interview(request.profile)
+    question_count = max(1, min(int(request.question_count or 5), 7))
+
+    try:
+        try:
+            plan = request_interview_plan(profile, question_count=question_count)
+            source = "llm"
+        except Exception:
+            plan = fallback_interview_plan(profile, question_count=question_count)
+            source = "fallback"
+
+        return {
+            "status": "success",
+            "message": "Interview session created successfully",
+            "data": {
+                **plan,
+                "questionCount": len(plan["questions"]),
+                "source": source,
+            },
+        }
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.post("/interview/session/answer")
+async def evaluate_interview_answer(request: InterviewAnswerRequest):
+    question = normalize_text(request.question)
+    answer = normalize_text(request.answer)
+
+    if not question:
+        raise HTTPException(status_code=400, detail="question cannot be empty")
+    if not answer:
+        raise HTTPException(status_code=400, detail="answer cannot be empty")
+
+    profile = sanitize_profile_for_interview(request.profile)
+    history = request.history if isinstance(request.history, list) else []
+
+    try:
+        try:
+            evaluation = request_answer_evaluation(profile, question, answer, history)
+            source = "llm"
+        except Exception:
+            evaluation = evaluate_answer_fallback(question, answer)
+            source = "fallback"
+
+        return {
+            "status": "success",
+            "message": "Interview answer evaluated successfully",
+            "data": {
+                **evaluation,
+                "source": source,
+            },
+        }
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))

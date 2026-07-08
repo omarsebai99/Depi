@@ -21,6 +21,7 @@ const {
   profileFromAnalysisResult,
   serializeCv,
   serializeUser,
+  serializeInterviewSession,
 } = require("../utils/profile");
 
 const router = express.Router();
@@ -40,6 +41,9 @@ const buildProfileResponse = (
     user: serializeUser(user),
     profile: normalizeProfile(user.profile),
     cvs: [...(user.cvs || [])].reverse().map(serializeCv),
+    interviewSessions: [...(user.interviewSessions || [])]
+      .reverse()
+      .map(serializeInterviewSession),
   },
 });
 
@@ -125,30 +129,43 @@ router.post("/interview/session/save", requireAuth, async (req, res) => {
     const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
     const summary = String(req.body?.summary || "").trim();
     const requestedCvId = String(req.body?.cvId || "").trim();
-    const notes = [];
+    
+    // Calculate average score and construct structured entries
+    let totalScore = 0;
+    const parsedEntries = entries.map((entry) => {
+      const score = Number(entry?.score) || 0;
+      totalScore += score;
+      return {
+        question: String(entry?.question || "").trim(),
+        answer: String(entry?.answer || "").trim(),
+        score,
+        strengths: Array.isArray(entry?.strengths) ? entry.strengths.map(String) : [],
+        improvements: Array.isArray(entry?.improvements) ? entry.improvements.map(String) : [],
+        coachReply: String(entry?.coachReply || "").trim(),
+      };
+    });
+    const averageScore = parsedEntries.length ? Math.round(totalScore / parsedEntries.length) : 0;
 
+    // Save the structured session
+    req.user.interviewSessions.push({
+      summary,
+      averageScore,
+      entries: parsedEntries,
+      cvId: requestedCvId,
+      createdAt: new Date(),
+    });
+
+    // Backward compatibility: build flat notes strings for profile.extraction.interviewNotes
+    const notes = [];
     if (summary) {
       notes.push(`Session Summary: ${summary}`);
     }
 
-    entries.forEach((entry, index) => {
-      const question = String(entry?.question || "").trim();
-      const answer = String(entry?.answer || "").trim();
-      const score = Number(entry?.score);
-      const coachReply = String(entry?.coachReply || "").trim();
-
-      if (question) {
-        notes.push(`Q${index + 1}: ${question}`);
-      }
-      if (answer) {
-        notes.push(`A${index + 1}: ${answer}`);
-      }
-      if (Number.isFinite(score)) {
-        notes.push(`Score ${index + 1}: ${score}/10`);
-      }
-      if (coachReply) {
-        notes.push(`Coach ${index + 1}: ${coachReply}`);
-      }
+    parsedEntries.forEach((entry, index) => {
+      if (entry.question) notes.push(`Q${index + 1}: ${entry.question}`);
+      if (entry.answer) notes.push(`A${index + 1}: ${entry.answer}`);
+      if (Number.isFinite(entry.score)) notes.push(`Score ${index + 1}: ${entry.score}/10`);
+      if (entry.coachReply) notes.push(`Coach ${index + 1}: ${entry.coachReply}`);
     });
 
     const currentProfile = normalizeProfile(req.user.profile);
@@ -178,11 +195,11 @@ router.post("/interview/session/save", requireAuth, async (req, res) => {
     await req.user.save();
     const freshUser = await reloadUser(req.user._id);
 
-    res.json(buildProfileResponse(freshUser, "Interview notes saved successfully"));
+    res.json(buildProfileResponse(freshUser, "Interview session saved successfully"));
   } catch (error) {
     res.status(error.statusCode || 500).json({
       status: "error",
-      message: error.message || "Failed to save interview notes",
+      message: error.message || "Failed to save interview session",
     });
   }
 });
