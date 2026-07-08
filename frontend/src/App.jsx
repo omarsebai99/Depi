@@ -329,6 +329,14 @@ const SpeakerIcon = ({ className }) => (
   </svg>
 );
 
+const SpeakerMuteIcon = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <line x1="23" y1="9" x2="17" y2="15" />
+    <line x1="17" y1="9" x2="23" y2="15" />
+  </svg>
+);
+
 const EndCallIcon = ({ className }) => (
   <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
     <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" />
@@ -1000,6 +1008,7 @@ const InterviewPage = ({
   const [speechReady, setSpeechReady] = useState(false);
   const [recognitionReady, setRecognitionReady] = useState(false);
   const [interviewerSpeaking, setInterviewerSpeaking] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
 
   const canInterview = hasProfileContent(currentProfile);
@@ -1033,9 +1042,10 @@ const InterviewPage = ({
     .toISOString()
     .slice(11, 19);
 
-  const speakText = (text) => {
+  const speakText = (text, force = false) => {
     if (!window.speechSynthesis || !text) return;
     window.speechSynthesis.cancel();
+    if (isMuted && !force) return;
     if (recognitionRef.current && isListening) {
       recognitionRef.current.stop();
       setIsListening(false);
@@ -1047,6 +1057,22 @@ const InterviewPage = ({
     utterance.onend = () => setInterviewerSpeaking(false);
     utterance.onerror = () => setInterviewerSpeaking(false);
     window.speechSynthesis.speak(utterance);
+  };
+
+  const handleToggleMute = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    if (nextMuted) {
+      window.speechSynthesis?.cancel();
+      setInterviewerSpeaking(false);
+    } else {
+      const textToSpeak = currentQuestion?.prompt || session?.interviewerIntro || "";
+      if (textToSpeak) {
+        setTimeout(() => {
+          speakText(textToSpeak, true);
+        }, 100);
+      }
+    }
   };
 
   useEffect(() => {
@@ -1317,7 +1343,7 @@ const InterviewPage = ({
           <button className="primary-button" type="button" onClick={handleStart} disabled={starting}>
             {starting ? "Preparing..." : session ? "Restart Session" : "Start Session"}
           </button>
-          <button className="secondary-button" type="button" onClick={() => speakText(currentQuestion?.prompt || session?.interviewerIntro || "")} disabled={!session}>
+          <button className="secondary-button" type="button" onClick={() => speakText(currentQuestion?.prompt || session?.interviewerIntro || "", true)} disabled={!session}>
             Replay Prompt
           </button>
           <button className="secondary-button" type="button" onClick={() => setRoute("review")}>
@@ -1406,14 +1432,12 @@ const InterviewPage = ({
                 {isListening ? <MicIcon className="icon-mic" /> : <MicOffIcon className="icon-mic" />}
               </button>
               <button
-                className="control-button replay-button"
+                className={`control-button replay-button ${isMuted ? "muted" : ""}`}
                 type="button"
-                onClick={() =>
-                  speakText(currentQuestion?.prompt || session?.interviewerIntro || "")
-                }
-                aria-label="Replay question"
+                onClick={handleToggleMute}
+                aria-label={isMuted ? "Unmute AI interviewer" : "Mute AI interviewer"}
               >
-                <SpeakerIcon className="icon-speaker" />
+                {isMuted ? <SpeakerMuteIcon className="icon-speaker" /> : <SpeakerIcon className="icon-speaker" />}
               </button>
               <button
                 className="control-button danger end-button"
